@@ -9,34 +9,34 @@ return {
             colors = {
                 -- Background colors
                 bg = "#17181a",
-                bg_dark = "#17181a",
-                bg_highlight = "#888a8f",
+                bg_dark = "#0f1012",
+                bg_highlight = "#2a2a2a",
 
                 -- Foreground colors
                 -- fg: Object properties, builtin types, builtin variables, member access, default text
-                fg = "#ede9df",
+                fg = "#d4d4d4",
                 -- fg_dark: Inactive elements, statusline, secondary text
-                fg_dark = "#c9c1a7",
+                fg_dark = "#9a9a9a",
                 -- comment: Line highlight, gutter elements, disabled states
-                comment = "#888a8f",
+                comment = "#6a6a6a",
 
                 -- Accent colors
                 -- red: Errors, diagnostics, tags, deletions, breakpoints
-                red = "#c2a566",
+                red = "#b85d5d",
                 -- orange: Constants, numbers, current line number, git modifications
-                orange = "#dfcda5",
+                orange = "#997a5d",
                 -- yellow: Types, classes, constructors, warnings, numbers, booleans
-                yellow = "#bfaf78",
+                yellow = "#a89b6b",
                 -- green: Comments, strings, success states, git additions
-                green = "#cab86d",
+                green = "#7a9b7a",
                 -- cyan: Parameters, regex, preprocessor, hints, properties
-                cyan = "#afb8c6",
+                cyan = "#669999",
                 -- blue: Functions, keywords, directories, links, info diagnostics
-                blue = "#929dc3",
+                blue = "#6b8199",
                 -- purple: Storage keywords, special keywords, identifiers, namespaces
-                purple = "#a7afbe",
+                purple = "#8d7a99",
                 -- magenta: Function declarations, exception handling, tags
-                magenta = "#dbdfe5",
+                magenta = "#997a8d",
             },
         },
         config = function(_, opts)
