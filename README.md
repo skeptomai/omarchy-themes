@@ -16,7 +16,14 @@ A light mode theme with warm stone/beige backgrounds and dark text, inspired by 
 **Theme Directory:** `stone-creature/`
 
 ### Field of Dreams
-[Add description]
+A dark mode theme with muted, nostalgic colors inspired by vintage baseball fields and golden hour lighting.
+
+**Features:**
+- Dark mode with near-black background (#17181a)
+- Warm cream foreground (#ede9df)
+- Desaturated earth tones and soft blues
+- Muted gold/tan accent colors for a nostalgic, vintage aesthetic
+- Optimized for terminals (Ghostty, Alacritty, Kitty) and editors (Emacs, Neovim)
 
 **Theme Directory:** `field-of-dreams/`
 
