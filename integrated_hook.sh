@@ -203,8 +203,52 @@ TEMPLATE
     return 0
 }
 
+# Parse colors.toml and populate variables
+load_colors_from_toml() {
+    local colors_toml="$theme_dir/colors.toml"
+
+    if [ ! -f "$colors_toml" ]; then
+        return 1
+    fi
+
+    # Parse TOML using pure bash (remove # prefix from hex values)
+    while IFS='=' read -r key value; do
+        # Trim whitespace from key and value, remove quotes, strip # prefix
+        key=$(echo "$key" | tr -d ' ')
+        value=$(echo "$value" | tr -d ' "' | sed 's/^#//')
+        case "$key" in
+            foreground) primary_foreground="$value" ;;
+            background) primary_background="$value" ;;
+            cursor) cursor_color="$value" ;;
+            selection_foreground) selection_foreground="$value" ;;
+            selection_background) selection_background="$value" ;;
+            color0) normal_black="$value" ;;
+            color1) normal_red="$value" ;;
+            color2) normal_green="$value" ;;
+            color3) normal_yellow="$value" ;;
+            color4) normal_blue="$value" ;;
+            color5) normal_magenta="$value" ;;
+            color6) normal_cyan="$value" ;;
+            color7) normal_white="$value" ;;
+            color8) bright_black="$value" ;;
+            color9) bright_red="$value" ;;
+            color10) bright_green="$value" ;;
+            color11) bright_yellow="$value" ;;
+            color12) bright_blue="$value" ;;
+            color13) bright_magenta="$value" ;;
+            color14) bright_cyan="$value" ;;
+            color15) bright_white="$value" ;;
+        esac
+    done < "$colors_toml"
+
+    return 0
+}
+
 # Original ANSI generation function (fallback)
 create_dynamic_theme() {
+    # Load colors from colors.toml first
+    load_colors_from_toml || return 1
+
     cat > "$emacs_output" << EOF
 (autothemer-deftheme
  omarchy-doom "A theme for Omarchy Linux"
