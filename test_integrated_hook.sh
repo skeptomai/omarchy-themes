@@ -44,7 +44,8 @@ test_hook_with_theme() {
         custom_emacs="$mock_theme/emacs.el"
         neovim_lua="$mock_theme/neovim.lua"
 
-        source ./integrated_hook.sh 2>&1 | head -20
+        source ./integrated_hook.sh
+        main 2>&1 | head -20
     )
 
     if [ -f "$output_file" ]; then
@@ -80,7 +81,8 @@ test_hook_with_theme() {
             custom_emacs="$mock_theme/emacs.el"
             neovim_lua="$mock_theme/neovim.lua"
 
-            source ./integrated_hook.sh 2>&1 | head -10
+            source ./integrated_hook.sh
+            main 2>&1 | head -10
         )
 
         if [ -f "$output_file" ]; then

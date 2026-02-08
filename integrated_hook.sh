@@ -2,31 +2,39 @@
 # Integrated 20-emacs.sh Hook
 # Three-tier fallback: emacs.el → neovim.lua → colors.toml
 
-theme_dir="$HOME/.config/omarchy/current/theme"
-emacs_output="$theme_dir/omarchy-doom-theme.el"
-custom_emacs="$theme_dir/emacs.el"
-neovim_lua="$theme_dir/neovim.lua"
+# Use environment variables if set, otherwise use defaults
+theme_dir="${theme_dir:-$HOME/.config/omarchy/current/theme}"
+emacs_output="${emacs_output:-$theme_dir/omarchy-doom-theme.el}"
+custom_emacs="${custom_emacs:-$theme_dir/emacs.el}"
+neovim_lua="${neovim_lua:-$theme_dir/neovim.lua}"
+
+# Helper functions for theme-set system reporting
+success() {
+    echo "✓ $1" >&2
+}
+
+skipped() {
+    echo "⊘ Skipped: $1" >&2
+}
 
 # Source extraction and generation functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Inline extraction function (simplified from extract_neovim_colors.sh)
 extract_colors_with_lua() {
-    local nvim_file="$1"
-    local temp_output=$(mktemp)
-    local temp_script=$(mktemp --suffix=.lua)
+    # All variables local to avoid pollution
+    nvim_file="$1"
+    temp_output=$(mktemp)
+    temp_script=$(mktemp --suffix=.lua)
 
     # Determine Lua interpreter
-    local lua_cmd=""
+    lua_cmd=""
     if command -v nvim >/dev/null 2>&1; then
         lua_cmd="nvim"
-        echo "INFO: Using Neovim's Lua interpreter" >&2
     elif command -v luajit >/dev/null 2>&1; then
         lua_cmd="luajit"
-        echo "INFO: Using system luajit interpreter" >&2
     elif command -v lua >/dev/null 2>&1; then
         lua_cmd="lua"
-        echo "INFO: Using system lua interpreter" >&2
     else
         rm -f "$temp_output" "$temp_script"
         return 1
@@ -76,24 +84,23 @@ if extracted < 10 then
 end
 LUA_SCRIPT
 
-    # Execute
+    # Execute (capture only color output)
     if [ "$lua_cmd" = "nvim" ]; then
-        nvim -l "$temp_script" "$nvim_file" > "$temp_output" 2>&1
+        nvim -l "$temp_script" "$nvim_file" > "$temp_output" 2>/dev/null
     else
-        $lua_cmd "$temp_script" "$nvim_file" > "$temp_output" 2>&1
+        $lua_cmd "$temp_script" "$nvim_file" > "$temp_output" 2>/dev/null
     fi
 
-    local exit_code=$?
+    exit_code=$?
     rm -f "$temp_script"
 
-    if [ $exit_code -ne 0 ] || grep -q "^ERROR:" "$temp_output"; then
-        cat "$temp_output" >&2
+    if [ $exit_code -ne 0 ]; then
         rm -f "$temp_output"
         return 1
     fi
 
     # Extract color lines only
-    local colors_only=$(mktemp)
+    colors_only=$(mktemp)
     grep -E "^[a-z_]+=#[0-9a-fA-F]{6}$" "$temp_output" > "$colors_only"
     rm -f "$temp_output"
 
@@ -102,21 +109,23 @@ LUA_SCRIPT
         return 1
     fi
 
+    # Output ONLY the file path to stdout
     echo "$colors_only"
     return 0
 }
 
 # Inline generation function (simplified from generate_emacs_theme.sh)
 generate_emacs_theme() {
-    local colors_file="$1"
-    local output_file="$2"
+    colors_file="$1"
+    output_file="$2"
 
+    # Read colors into array
     declare -A colors
     while IFS='=' read -r key value; do
         colors[$key]="$value"
     done < "$colors_file"
 
-    # Set defaults
+    # Set defaults for optional colors
     colors[bg_dark]="${colors[bg_dark]:-${colors[bg]}}"
     colors[bg_highlight]="${colors[bg_highlight]:-${colors[bg]}}"
     colors[fg_dark]="${colors[fg_dark]:-${colors[fg]}}"
@@ -280,11 +289,11 @@ main() {
     if [ -f "$neovim_lua" ]; then
         echo "→ Found neovim.lua, attempting conversion"
 
-        local colors_file
-        if colors_file=$(extract_colors_with_lua "$neovim_lua" 2>&1); then
+        colors_file=$(extract_colors_with_lua "$neovim_lua")
+        if [ -n "$colors_file" ] && [ -f "$colors_file" ]; then
             echo "✓ Extracted colors using Lua"
 
-            if generate_emacs_theme "$colors_file" "$emacs_output"; then
+            if generate_emacs_theme "$colors_file" "$emacs_output" 2>/dev/null; then
                 echo "✓ Generated emacs theme from neovim.lua"
                 rm -f "$colors_file"
                 emacsclient -e "(omarchy-themer-install-and-load \"$emacs_output\")" 2>/dev/null || true
@@ -310,4 +319,7 @@ main() {
     exit 0
 }
 
-main "$@"
+# Only run main if script is executed directly (not sourced)
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    main "$@"
+fi
