@@ -63,10 +63,17 @@ awk '/colors = {/,/}/ { if ($1 ~ /^[a-z_]+$/) print $1, $3 }'
 
 ## Selected Approach: Hybrid Three-Tier Parsing
 
-### Tier 1: Lua Interpreter (Preferred)
-- **When:** lua or luajit binary is available
-- **Method:** Execute neovim.lua and extract colors table
-- **Pros:** Handles all Lua syntax, most reliable
+### Tier 1: Neovim's Lua Interpreter (Preferred)
+- **When:** nvim binary is available (nvim -l)
+- **Method:** Execute neovim.lua using Neovim's built-in Lua
+- **Pros:** Handles all Lua syntax, most reliable, same environment as theme runs in
+- **Cons:** Requires Neovim (but if they have neovim.lua, they have Neovim)
+- **Fallback:** If nvim not found → try system lua → Tier 2
+
+### Tier 1b: System Lua Interpreter (Fallback)
+- **When:** lua or luajit binary is available (nvim not available)
+- **Method:** Execute neovim.lua with system Lua
+- **Pros:** Handles all Lua syntax
 - **Cons:** Requires lua installation
 - **Fallback:** If lua not found OR execution fails → Tier 2
 
@@ -93,17 +100,114 @@ awk '/colors = {/,/}/ { if ($1 ~ /^[a-z_]+$/) print $1, $3 }'
 extract_neovim_colors_lua() {
     local nvim_file="$1"
     local temp_output=$(mktemp)
+    local temp_script=$(mktemp --suffix=.lua)
 
-    # Check if lua interpreter exists
-    if ! command -v lua >/dev/null 2>&1 && ! command -v luajit >/dev/null 2>&1; then
-        echo "INFO: Lua interpreter not found, will try AWK method"
+    # Determine which Lua interpreter to use
+    local lua_cmd=""
+    local lua_method=""
+
+    # Prefer Neovim's Lua (nvim -l)
+    if command -v nvim >/dev/null 2>&1; then
+        lua_cmd="nvim"
+        lua_method="neovim"
+        echo "INFO: Using Neovim's Lua interpreter"
+    # Fall back to system lua/luajit
+    elif command -v luajit >/dev/null 2>&1; then
+        lua_cmd="luajit"
+        lua_method="system"
+        echo "INFO: Using system luajit interpreter"
+    elif command -v lua >/dev/null 2>&1; then
+        lua_cmd="lua"
+        lua_method="system"
+        echo "INFO: Using system lua interpreter"
+    else
+        echo "INFO: No Lua interpreter found, will try AWK method"
+        rm -f "$temp_output" "$temp_script"
         return 1
     fi
 
-    local lua_cmd="lua"
-    command -v luajit >/dev/null 2>&1 && lua_cmd="luajit"
+    # Create Lua extraction script
+    cat > "$temp_script" << 'LUA_SCRIPT'
+-- Extract colors from neovim.lua config file
+local nvim_file = arg[1]
 
-    # Execute Lua to extract colors
+-- Load the config file
+local config = dofile(nvim_file)
+
+-- Verbosely search for colors table
+print("-- Searching for colors table in config structure")
+
+local colors = nil
+
+-- Try to find colors dynamically
+local function find_colors(tbl, path)
+    path = path or "config"
+
+    if type(tbl) ~= "table" then
+        return nil
+    end
+
+    -- Check if this table has a colors key
+    if tbl.colors and type(tbl.colors) == "table" then
+        print("-- Found colors table at: " .. path .. ".colors")
+        return tbl.colors
+    end
+
+    -- Check if this table has opts.colors
+    if tbl.opts and type(tbl.opts) == "table" and tbl.opts.colors then
+        print("-- Found colors table at: " .. path .. ".opts.colors")
+        return tbl.opts.colors
+    end
+
+    -- Recursively search table elements
+    for k, v in pairs(tbl) do
+        if type(v) == "table" then
+            local found = find_colors(v, path .. "." .. tostring(k))
+            if found then
+                return found
+            end
+        end
+    end
+
+    return nil
+end
+
+colors = find_colors(config)
+
+if not colors then
+    print("ERROR: Could not find colors table in config")
+    os.exit(1)
+end
+
+print("-- Found " .. #(function() local t={}; for k in pairs(colors) do table.insert(t,k) end; return t end)() .. " color entries")
+
+-- Extract and validate all colors
+local extracted = 0
+for key, value in pairs(colors) do
+    if type(value) == "string" and value:match("^#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$") then
+        print(key .. "=" .. value)
+        extracted = extracted + 1
+    elseif type(value) == "string" then
+        print("-- WARNING: " .. key .. " has invalid format: " .. value)
+    end
+end
+
+print("-- Successfully extracted " .. extracted .. " valid colors")
+
+if extracted < 10 then
+    print("ERROR: Too few valid colors found: " .. extracted)
+    os.exit(1)
+end
+LUA_SCRIPT
+
+    # Execute Lua script
+    if [ "$lua_method" = "neovim" ]; then
+        # Use nvim -l to execute the script
+        nvim -l "$temp_script" "$nvim_file" > "$temp_output" 2>&1
+    else
+        # Use system lua/luajit
+        $lua_cmd "$temp_script" "$nvim_file" > "$temp_output" 2>&1
+    fi
     $lua_cmd << EOF > "$temp_output" 2>&1
 local config = dofile("$nvim_file")
 
