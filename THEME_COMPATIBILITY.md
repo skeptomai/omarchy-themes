@@ -11,7 +11,7 @@ All 16 Omarchy themes successfully convert to Emacs themes using the integrated 
 - **Themes**: None currently use this (all rely on automatic conversion)
 - **Action**: Direct copy, no conversion needed
 
-### Tier 2: neovim.lua Conversion (High Fidelity)
+### Tier 2: neovim.lua Conversion (Inline Colors)
 - **Usage**: Themes with inline color definitions in `neovim.lua`
 - **Method**: Lua extraction + semantic color mapping
 - **Themes**: 2 themes
@@ -22,6 +22,26 @@ All 16 Omarchy themes successfully convert to Emacs themes using the integrated 
 - Full semantic color palette (bg, fg, bg_dark, comment, etc.)
 - Prescriptive syntax highlighting (types=yellow, functions=blue, etc.)
 - Best fidelity for complex color schemes
+
+### Tier 2.5: Plugin Source Extraction (High Fidelity)
+- **Usage**: Themes that reference Neovim plugins with installed source code
+- **Method**: Extract colors directly from plugin palette files
+- **Themes**: 2 themes
+  - `catppuccin` - Mocha variant with authentic catppuccin colors
+  - `catppuccin-latte` - Light variant with authentic catppuccin colors
+
+**Characteristics**:
+- Uses plugin's canonical color definitions (not ANSI approximations)
+- Preserves author-intended color relationships
+- Example: `bg="#1e1e2e"` (mocha base), `bg_dark="#181825"` (mantle)
+- Intelligent mapping of plugin color names to Emacs scheme
+
+**How it works**:
+1. Parses `neovim.lua` to find colorscheme name (e.g., "catppuccin")
+2. Locates plugin in `~/.local/share/nvim/lazy/catppuccin/`
+3. Loads palette file: `lua/catppuccin/palettes/mocha.lua`
+4. Maps plugin colors (base, text, mauve) to Emacs colors (bg, fg, purple)
+5. Generates theme with full semantic palette
 
 ### Tier 3: colors.toml Fallback (ANSI Mapping)
 - **Usage**: Plugin-based themes without inline colors
@@ -53,29 +73,29 @@ All 16 Omarchy themes successfully convert to Emacs themes using the integrated 
 ```
 Theme                Tier                     Lines  Status
 ─────────────────────────────────────────────────────────────
-catppuccin           Tier 3 (colors.toml)     60     ✓
-catppuccin-latte     Tier 3 (colors.toml)     60     ✓
-ethereal             Tier 3 (colors.toml)     60     ✓
-everforest           Tier 3 (colors.toml)     60     ✓
-field-of-dreams      Tier 2 (neovim.lua)      60     ✓
-flexoki-light        Tier 3 (colors.toml)     60     ✓
-gruvbox              Tier 3 (colors.toml)     60     ✓
-hackerman            Tier 3 (colors.toml)     60     ✓
-kanagawa             Tier 3 (colors.toml)     60     ✓
-matte-black          Tier 3 (colors.toml)     60     ✓
-nord                 Tier 3 (colors.toml)     60     ✓
-osaka-jade           Tier 3 (colors.toml)     60     ✓
-ristretto            Tier 3 (colors.toml)     60     ✓
-rose-pine            Tier 3 (colors.toml)     60     ✓
-stone-creature       Tier 2 (neovim.lua)      60     ✓
-tokyo-night          Tier 3 (colors.toml)     60     ✓
+catppuccin           Tier 2.5 (plugin)        60     ✓
+catppuccin-latte     Tier 2.5 (plugin)        60     ✓
+ethereal             Tier 3 (ANSI)            60     ✓
+everforest           Tier 3 (ANSI)            60     ✓
+field-of-dreams      Tier 2 (inline)          60     ✓
+flexoki-light        Tier 3 (ANSI)            60     ✓
+gruvbox              Tier 3 (ANSI)            60     ✓
+hackerman            Tier 3 (ANSI)            60     ✓
+kanagawa             Tier 3 (ANSI)            60     ✓
+matte-black          Tier 3 (ANSI)            60     ✓
+nord                 Tier 3 (ANSI)            60     ✓
+osaka-jade           Tier 3 (ANSI)            60     ✓
+ristretto            Tier 3 (ANSI)            60     ✓
+rose-pine            Tier 3 (ANSI)            60     ✓
+stone-creature       Tier 2 (inline)          60     ✓
+tokyo-night          Tier 3 (ANSI)            60     ✓
 ```
 
 **Success Rate**: 16/16 (100%)
 
 ## Sample Theme Outputs
 
-### Tier 2 Example (stone-creature)
+### Tier 2 Example (stone-creature - inline colors)
 ```elisp
 (bg "#d8d5cd") (bg-dark "#cbc8c0") (bg-highlight "#c3c0b8")
 (fg "#2e2e2e") (fg-dark "#5c5f77") (comment "#9ca0b0")
@@ -83,13 +103,23 @@ tokyo-night          Tier 3 (colors.toml)     60     ✓
 (cyan "#179299") (blue "#1e66f5") (purple "#8839ef") (magenta "#8839ef")
 ```
 
-### Tier 3 Example (catppuccin)
+### Tier 2.5 Example (catppuccin - plugin extraction)
 ```elisp
-(bg "#1e1e2e") (fg "#cdd6f4")
-(black "#45475a") (red "#f38ba8") (green "#a6e3a1")
-(yellow "#f9e2af") (blue "#89b4fa") (magenta "#f5c2e7")
-(cyan "#94e2d5") (white "#bac2de")
+(bg "#1e1e2e") (bg-dark "#181825") (bg-highlight "#313244")
+(fg "#cdd6f4") (fg-dark "#a6adc8") (comment "#6c7086")
+(red "#f38ba8") (orange "#fab387") (yellow "#f9e2af") (green "#a6e3a1")
+(cyan "#94e2d5") (blue "#89b4fa") (purple "#cba6f7") (magenta="#f5c2e7")
 ```
+*Note: Authentic catppuccin mocha colors with semantic shades (mantle, surface0)*
+
+### Tier 3 Example (gruvbox - ANSI mapping)
+```elisp
+(bg "#282828") (fg "#d4be98")
+(black "#3c3836") (red "#ea6962") (green "#a9b665")
+(yellow "#d8a657") (blue "#7daea3") (magenta "#d3869b")
+(cyan "#89b482") (white "#d4be98")
+```
+*Note: Standard ANSI color mapping, fewer semantic shades*
 
 ## Implementation Details
 
@@ -127,10 +157,18 @@ color15 = "#xxxxxx"  # bright white
 
 ## Future Enhancements
 
-1. **Tier 1 Adoption**: Theme authors can provide hand-crafted `emacs.el` for maximum control
-2. **Hybrid Approach**: Combine Tier 2 colors with Tier 1 custom face definitions
-3. **Color Validation**: Add checks for contrast ratios and accessibility
-4. **Theme Metadata**: Include author, description, and palette info in generated themes
+1. **Expand Tier 2.5 Support**: Add more plugins (tokyonight, kanagawa, rose-pine, bamboo, etc.)
+   - Handle complex plugin structures (vim.deepcopy, tbl_extend)
+   - Support plugin variants (dark/light modes, flavor selection)
+   - Auto-detect plugin installation and version
+
+2. **Tier 1 Adoption**: Theme authors can provide hand-crafted `emacs.el` for maximum control
+
+3. **Hybrid Approach**: Combine Tier 2/2.5 colors with Tier 1 custom face definitions
+
+4. **Color Validation**: Add checks for contrast ratios and accessibility
+
+5. **Theme Metadata**: Include author, description, and palette info in generated themes
 
 ## Deployment
 
