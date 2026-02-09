@@ -114,6 +114,139 @@ LUA_SCRIPT
     return 0
 }
 
+# Tier 2.5: Extract colors from installed plugin source
+extract_colors_from_plugin() {
+    nvim_config="$1"
+    plugin_dir="$HOME/.local/share/nvim/lazy"
+
+    # Find colorscheme name from config
+    colorscheme=$(grep -E 'colorscheme\s*=\s*"' "$nvim_config" | sed 's/.*colorscheme\s*=\s*"\([^"]*\)".*/\1/' | head -1)
+
+    if [ -z "$colorscheme" ]; then
+        return 1
+    fi
+
+    # Map colorscheme to plugin and palette file
+    local palette_file=""
+    case "$colorscheme" in
+        catppuccin)
+            palette_file="$plugin_dir/catppuccin/lua/catppuccin/palettes/mocha.lua"
+            ;;
+        catppuccin-latte)
+            palette_file="$plugin_dir/catppuccin/lua/catppuccin/palettes/latte.lua"
+            ;;
+        tokyonight|tokyonight-night)
+            palette_file="$plugin_dir/tokyonight.nvim/lua/tokyonight/colors/night.lua"
+            ;;
+        tokyonight-moon)
+            palette_file="$plugin_dir/tokyonight.nvim/lua/tokyonight/colors/moon.lua"
+            ;;
+        bamboo)
+            palette_file="$plugin_dir/bamboo.nvim/lua/bamboo/palette.lua"
+            ;;
+        kanagawa)
+            palette_file="$plugin_dir/kanagawa.nvim/lua/kanagawa/colors.lua"
+            ;;
+        *)
+            # Other plugins not yet supported, will fall back to Tier 3
+            return 1
+            ;;
+    esac
+
+    if [ ! -f "$palette_file" ]; then
+        return 1
+    fi
+
+    # Extract colors using Lua
+    temp_output=$(mktemp)
+    temp_script=$(mktemp --suffix=.lua)
+
+    cat > "$temp_script" << 'LUA_SCRIPT'
+local palette_file = arg[1]
+local palette = dofile(palette_file)
+
+-- Mapping of plugin color names to our standard names
+local color_map = {
+    -- Background colors
+    bg = {"base", "bg", "background", "bg0", "bg_dim", "sumiInk3"},
+    bg_dark = {"mantle", "bg_dark", "bg1", "bg_highlight", "bg_d", "sumiInk1"},
+    bg_highlight = {"surface0", "bg_highlight", "bg2", "sumiInk4"},
+
+    -- Foreground colors
+    fg = {"text", "fg", "foreground", "fg0", "fujiWhite"},
+    fg_dark = {"subtext0", "fg_dark", "fg1", "oldWhite"},
+    comment = {"overlay0", "comment", "gray", "fg_gutter", "fujiGray", "grey"},
+
+    -- Standard colors
+    red = {"red", "autumnRed", "samuraiRed"},
+    orange = {"peach", "orange", "surimiOrange"},
+    yellow = {"yellow", "carpYellow", "boatYellow2"},
+    green = {"green", "springGreen", "springBlue"},
+    cyan = {"teal", "cyan", "aqua", "waveAqua2"},
+    blue = {"blue", "sapphire", "crystalBlue", "oniViolet"},
+    purple = {"mauve", "purple", "magenta", "oniViolet"},
+    magenta = {"pink", "magenta", "sakuraPink"}
+}
+
+-- Extract and map colors
+local found = {}
+for our_name, plugin_names in pairs(color_map) do
+    for _, pname in ipairs(plugin_names) do
+        if palette[pname] and type(palette[pname]) == "string" then
+            local hex = palette[pname]:match("^#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$")
+            if hex then
+                found[our_name] = hex
+                break
+            end
+        end
+    end
+end
+
+-- Output mapped colors
+for name, hex in pairs(found) do
+    io.stdout:write(name .. "=" .. hex .. "\n")
+end
+LUA_SCRIPT
+
+    # Determine Lua interpreter
+    lua_cmd=""
+    if command -v nvim >/dev/null 2>&1; then
+        lua_cmd="nvim"
+    elif command -v luajit >/dev/null 2>&1; then
+        lua_cmd="luajit"
+    elif command -v lua >/dev/null 2>&1; then
+        lua_cmd="lua"
+    else
+        rm -f "$temp_output" "$temp_script"
+        return 1
+    fi
+
+    # Execute
+    if [ "$lua_cmd" = "nvim" ]; then
+        nvim -l "$temp_script" "$palette_file" > "$temp_output" 2>/dev/null
+    else
+        $lua_cmd "$temp_script" "$palette_file" > "$temp_output" 2>/dev/null
+    fi
+
+    exit_code=$?
+    rm -f "$temp_script"
+
+    if [ $exit_code -ne 0 ] || [ ! -s "$temp_output" ]; then
+        rm -f "$temp_output"
+        return 1
+    fi
+
+    # Validate we have minimum required colors
+    color_count=$(wc -l < "$temp_output")
+    if [ "$color_count" -lt 8 ]; then
+        rm -f "$temp_output"
+        return 1
+    fi
+
+    echo "$temp_output"
+    return 0
+}
+
 # Inline generation function (simplified from generate_emacs_theme.sh)
 generate_emacs_theme() {
     colors_file="$1"
@@ -350,6 +483,27 @@ main() {
             rm -f "$colors_file"
         else
             echo "⚠ Lua extraction failed"
+        fi
+
+        # === TIER 2.5: Extract from plugin source ===
+        echo "→ Attempting plugin source extraction"
+        colors_file=$(extract_colors_from_plugin "$neovim_lua")
+        if [ -n "$colors_file" ] && [ -f "$colors_file" ]; then
+            echo "✓ Extracted colors from plugin"
+
+            if generate_emacs_theme "$colors_file" "$emacs_output" 2>/dev/null; then
+                echo "✓ Generated emacs theme from plugin"
+                rm -f "$colors_file"
+                emacsclient -e "(omarchy-themer-install-and-load \"$emacs_output\")" 2>/dev/null || true
+                success "Emacs theme updated (from plugin)"
+                exit 0
+            else
+                echo "⚠ Generation from plugin failed"
+            fi
+
+            rm -f "$colors_file"
+        else
+            echo "⚠ Plugin extraction failed"
         fi
 
         echo "→ Falling back to colors.toml"
