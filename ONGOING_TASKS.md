@@ -1,703 +1,286 @@
-# Ongoing Tasks - Omarchy Themes
+# Omarchy Themes - Implementation Status
 
-## Current Task: Dynamic neovim.lua → emacs.el Conversion
+## ✅ COMPLETED: Dynamic Emacs Theme System
 
-### Goal
-Implement three-tier fallback system for Emacs theming:
-1. Check for explicit `emacs.el` → use it
-2. Check for `neovim.lua` → convert to emacs.el dynamically
-3. Fall back to `colors.toml` → generate from ANSI colors
+### Final Implementation
 
-### Context
-We want prescriptive Emacs theming (like neovim.lua) but don't want to maintain both files. Solution: parse neovim.lua and generate emacs.el on-the-fly with robust error handling.
+A **four-tier fallback system** for maximum compatibility and fidelity:
 
----
-
-## Parsing Strategy Analysis
-
-### The Challenge
-
-The neovim.lua files are **valid Lua code**, not simple config files:
-```lua
-return {
-    {
-        opts = {
-            colors = {
-                bg = "#d8d5cd",
-                red = "#d20f39",
-                -- Comments and nested structure
-            },
-        },
-    },
-}
-```
-
-### Parsing Approaches Considered
-
-#### Option A: Use Lua Interpreter
-```bash
-lua -e "dofile('neovim.lua'); print(colors.red)"
-```
-**Pros:** Proper parsing, handles all Lua syntax
-**Cons:** Requires lua binary
-**Risk:** Medium if lua not installed, but we can detect and fall back
-**Security:** Low risk - we trust our own theme files
-
-#### Option B: Regex Pattern Matching
-```bash
-grep -oP 'red\s*=\s*"#[0-9a-fA-F]{6}"' neovim.lua
-```
-**Pros:** No dependencies, fast
-**Cons:** Fragile, breaks with format changes
-**Risk:** Medium - could extract wrong values
-
-#### Option C: AWK State Machine
-```bash
-awk '/colors = {/,/}/ { if ($1 ~ /^[a-z_]+$/) print $1, $3 }'
-```
-**Pros:** More robust than regex, structured, no dependencies
-**Cons:** Complex, still pattern-dependent
-**Risk:** Low-Medium with proper validation
+1. **Tier 1**: Explicit `emacs.el` (hand-crafted by theme author)
+2. **Tier 2**: Inline `neovim.lua` (colors defined directly in config)
+3. **Tier 2.5**: Plugin source extraction (colors from installed Neovim plugins)
+4. **Tier 3**: ANSI fallback (colors.toml standard mapping)
 
 ---
 
-## Selected Approach: Hybrid Three-Tier Parsing
+## System Architecture
 
-### Tier 1: Neovim's Lua Interpreter (Preferred)
-- **When:** nvim binary is available (nvim -l)
-- **Method:** Execute neovim.lua using Neovim's built-in Lua
-- **Pros:** Handles all Lua syntax, most reliable, same environment as theme runs in
-- **Cons:** Requires Neovim (but if they have neovim.lua, they have Neovim)
-- **Fallback:** If nvim not found → try system lua → Tier 2
+### Tier 1: Explicit emacs.el
+- **Usage**: Theme author provides hand-crafted `emacs.el`
+- **Action**: Direct copy, no conversion
+- **Themes**: 0 currently (all rely on automatic conversion)
+- **Status**: ✅ Implemented and tested
 
-### Tier 1b: System Lua Interpreter (Fallback)
-- **When:** lua or luajit binary is available (nvim not available)
-- **Method:** Execute neovim.lua with system Lua
-- **Pros:** Handles all Lua syntax
-- **Cons:** Requires lua installation
-- **Fallback:** If lua not found OR execution fails → Tier 2
+### Tier 2: Inline neovim.lua Conversion
+- **Usage**: Themes with inline color definitions in `neovim.lua`
+- **Method**: Lua extraction + semantic color mapping
+- **Themes**: 2 themes
+  - `stone-creature` - Light mode theme
+  - `field-of-dreams` - Dark brutalist theme
+- **Process**:
+  1. Load neovim.lua with Lua interpreter (nvim -l preferred)
+  2. Extract `opts.colors` table
+  3. Validate hex colors and required fields
+  4. Generate Emacs theme with semantic mappings
+- **Status**: ✅ Implemented, tested, deployed
 
-### Tier 2: AWK Pattern Matching (Robust Fallback)
-- **When:** Lua interpreter unavailable or fails
-- **Method:** Extract colors with strict AWK patterns
-- **Pros:** No dependencies, reliable for our format
-- **Cons:** Could break with major format changes
-- **Fallback:** If extraction/validation fails → Tier 3
+### Tier 2.5: Plugin Source Extraction (NEW)
+- **Usage**: Themes referencing Neovim plugins with accessible palettes
+- **Method**: Extract from installed plugin source code
+- **Themes**: 2 themes
+  - `catppuccin` - Mocha variant
+  - `catppuccin-latte` - Latte variant
+- **Process**:
+  1. Parse neovim.lua to find colorscheme name
+  2. Map to plugin directory (`~/.local/share/nvim/lazy/`)
+  3. Load plugin palette file
+  4. Map plugin colors to Emacs scheme
+  5. Generate theme with full semantic palette
+- **Limitations**: Only simple-structure plugins supported
+  - ✅ catppuccin: Simple table structure
+  - ✗ tokyonight: Uses `vim.deepcopy`, requires Neovim runtime
+  - ✗ kanagawa: Japanese poetic names, complex mapping needed
+  - ✗ bamboo: Multi-variant nested table
+  - ✗ gruvbox, rose-pine, etc.: Complex loading mechanisms
+- **Status**: ✅ Implemented for catppuccin, documented, deployed
 
-### Tier 3: colors.toml ANSI Mapping (Safe Fallback)
-- **When:** Both Lua and AWK methods fail
-- **Method:** Existing implementation (generate from ANSI colors)
-- **Pros:** Always works, existing code
-- **Cons:** Less control than neovim.lua-based generation
+### Tier 3: ANSI Fallback
+- **Usage**: All other plugin-based themes
+- **Method**: Parse colors.toml for standard 16 ANSI colors
+- **Themes**: 12 themes
+  - ethereal, everforest, flexoki-light, gruvbox, hackerman
+  - kanagawa, matte-black, nord, osaka-jade, ristretto
+  - rose-pine, tokyo-night
+- **Process**:
+  1. Parse colors.toml with pure bash
+  2. Extract foreground, background, color0-15
+  3. Map to Emacs faces using standard ANSI conventions
+  4. Generate theme
+- **Status**: ✅ Implemented, tested, deployed
 
 ---
 
-## Implementation Plan
+## Implementation Details
 
-### Phase 1: Lua Interpreter Extraction
+### Files
 
-```bash
-extract_neovim_colors_lua() {
-    local nvim_file="$1"
-    local temp_output=$(mktemp)
-    local temp_script=$(mktemp --suffix=.lua)
+**Main Hook**: `integrated_hook.sh`
+- Location: `~/.config/omarchy/hooks/theme-set.d/20-emacs.sh`
+- Size: ~520 lines
+- Features:
+  - All extraction logic inlined
+  - Testable (can be sourced without executing)
+  - Configurable via environment variables
+  - Comprehensive error handling
 
-    # Determine which Lua interpreter to use
-    local lua_cmd=""
-    local lua_method=""
+**Supporting Files**:
+- `extract_neovim_colors.sh` - Standalone Tier 2 extraction (reference)
+- `generate_emacs_theme.sh` - Standalone theme generation (reference)
+- `test_integrated_hook.sh` - Test harness for all tiers
+- `test_extraction.sh` - Unit tests for color extraction
 
-    # Prefer Neovim's Lua (nvim -l)
-    if command -v nvim >/dev/null 2>&1; then
-        lua_cmd="nvim"
-        lua_method="neovim"
-        echo "INFO: Using Neovim's Lua interpreter"
-    # Fall back to system lua/luajit
-    elif command -v luajit >/dev/null 2>&1; then
-        lua_cmd="luajit"
-        lua_method="system"
-        echo "INFO: Using system luajit interpreter"
-    elif command -v lua >/dev/null 2>&1; then
-        lua_cmd="lua"
-        lua_method="system"
-        echo "INFO: Using system lua interpreter"
-    else
-        echo "INFO: No Lua interpreter found, will try AWK method"
-        rm -f "$temp_output" "$temp_script"
-        return 1
-    fi
+**Documentation**:
+- `PHASE4_COMPLETE.md` - Phase 4 implementation summary
+- `THEME_COMPATIBILITY.md` - Complete theme compatibility report
+- `README.md` - Repository overview
 
-    # Create Lua extraction script
-    cat > "$temp_script" << 'LUA_SCRIPT'
--- Extract colors from neovim.lua config file
-local nvim_file = arg[1]
+### Test Results
 
--- Load the config file
-local config = dofile(nvim_file)
+**Comprehensive Testing**: All 16 themes tested
 
--- Verbosely search for colors table
-print("-- Searching for colors table in config structure")
-
-local colors = nil
-
--- Try to find colors dynamically
-local function find_colors(tbl, path)
-    path = path or "config"
-
-    if type(tbl) ~= "table" then
-        return nil
-    end
-
-    -- Check if this table has a colors key
-    if tbl.colors and type(tbl.colors) == "table" then
-        print("-- Found colors table at: " .. path .. ".colors")
-        return tbl.colors
-    end
-
-    -- Check if this table has opts.colors
-    if tbl.opts and type(tbl.opts) == "table" and tbl.opts.colors then
-        print("-- Found colors table at: " .. path .. ".opts.colors")
-        return tbl.opts.colors
-    end
-
-    -- Recursively search table elements
-    for k, v in pairs(tbl) do
-        if type(v) == "table" then
-            local found = find_colors(v, path .. "." .. tostring(k))
-            if found then
-                return found
-            end
-        end
-    end
-
-    return nil
-end
-
-colors = find_colors(config)
-
-if not colors then
-    print("ERROR: Could not find colors table in config")
-    os.exit(1)
-end
-
-print("-- Found " .. #(function() local t={}; for k in pairs(colors) do table.insert(t,k) end; return t end)() .. " color entries")
-
--- Extract and validate all colors
-local extracted = 0
-for key, value in pairs(colors) do
-    if type(value) == "string" and value:match("^#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$") then
-        print(key .. "=" .. value)
-        extracted = extracted + 1
-    elseif type(value) == "string" then
-        print("-- WARNING: " .. key .. " has invalid format: " .. value)
-    end
-end
-
-print("-- Successfully extracted " .. extracted .. " valid colors")
-
-if extracted < 10 then
-    print("ERROR: Too few valid colors found: " .. extracted)
-    os.exit(1)
-end
-LUA_SCRIPT
-
-    # Execute Lua script
-    if [ "$lua_method" = "neovim" ]; then
-        # Use nvim -l to execute the script
-        nvim -l "$temp_script" "$nvim_file" > "$temp_output" 2>&1
-    else
-        # Use system lua/luajit
-        $lua_cmd "$temp_script" "$nvim_file" > "$temp_output" 2>&1
-    fi
-    $lua_cmd << EOF > "$temp_output" 2>&1
-local config = dofile("$nvim_file")
-
--- Navigate the config structure
-local colors = nil
-if config[1] and config[1].opts and config[1].opts.colors then
-    colors = config[1].opts.colors
-end
-
-if not colors then
-    print("ERROR: Could not find colors table")
-    os.exit(1)
-end
-
--- Required colors
-local required = {
-    "bg", "fg", "red", "orange", "yellow",
-    "green", "cyan", "blue", "purple", "magenta",
-    "comment", "bg_dark", "bg_highlight", "fg_dark"
-}
-
--- Validate and print colors
-local found = 0
-for _, key in ipairs(required) do
-    if colors[key] then
-        local value = colors[key]
-        -- Validate hex format
-        if type(value) == "string" and value:match("^#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$") then
-            print(key .. "=" .. value)
-            found = found + 1
-        end
-    end
-end
-
-if found < 10 then
-    print("ERROR: Too few valid colors found: " .. found)
-    os.exit(1)
-end
-EOF
-
-    local exit_code=$?
-
-    if [ $exit_code -ne 0 ]; then
-        echo "ERROR: Lua extraction failed"
-        rm -f "$temp_output"
-        return 1
-    fi
-
-    # Check output is valid
-    if grep -q "^ERROR:" "$temp_output"; then
-        cat "$temp_output" >&2
-        rm -f "$temp_output"
-        return 1
-    fi
-
-    echo "$temp_output"
-    return 0
-}
+```
+Theme                Tier                     Status
+─────────────────────────────────────────────────────
+catppuccin           Tier 2.5 (plugin)        ✓
+catppuccin-latte     Tier 2.5 (plugin)        ✓
+ethereal             Tier 3 (ANSI)            ✓
+everforest           Tier 3 (ANSI)            ✓
+field-of-dreams      Tier 2 (inline)          ✓
+flexoki-light        Tier 3 (ANSI)            ✓
+gruvbox              Tier 3 (ANSI)            ✓
+hackerman            Tier 3 (ANSI)            ✓
+kanagawa             Tier 3 (ANSI)            ✓
+matte-black          Tier 3 (ANSI)            ✓
+nord                 Tier 3 (ANSI)            ✓
+osaka-jade           Tier 3 (ANSI)            ✓
+ristretto            Tier 3 (ANSI)            ✓
+rose-pine            Tier 3 (ANSI)            ✓
+stone-creature       Tier 2 (inline)          ✓
+tokyo-night          Tier 3 (ANSI)            ✓
 ```
 
-### Phase 2: AWK Fallback Extraction
+**Success Rate**: 16/16 (100%)
+
+### Deployment
+
+- ✅ Deployed to: `~/.config/omarchy/hooks/theme-set.d/20-emacs.sh`
+- ✅ Backup created: `20-emacs.sh.backup`
+- ✅ Verified working in live environment
+- ✅ All themes switch successfully
+- ✅ Emacs updates automatically via `emacsclient`
+
+---
+
+## User Workflow
+
+### Switching Themes
 
 ```bash
-extract_neovim_colors_awk() {
-    local nvim_file="$1"
-    local temp_colors=$(mktemp)
-
-    # Extract colors block with strict awk
-    awk '
-        /colors = \{/ { in_colors=1; next }
-        in_colors && /^\s*\}/ { in_colors=0 }
-        in_colors && /[a-z_]+[[:space:]]*=[[:space:]]*"#[0-9a-fA-F]{6}"/ {
-            # Extract: colorname = "#hexcode"
-            match($0, /([a-z_]+)[[:space:]]*=[[:space:]]*"(#[0-9a-fA-F]{6})"/, arr)
-            if (arr[1] && arr[2]) {
-                print arr[1] "=" arr[2]
-            }
-        }
-    ' "$nvim_file" > "$temp_colors"
-
-    # Validate output
-    if [ ! -s "$temp_colors" ]; then
-        echo "ERROR: AWK extraction produced no output"
-        rm -f "$temp_colors"
-        return 1
-    fi
-
-    echo "$temp_colors"
-    return 0
-}
+omarchy-theme-set <theme-name>
 ```
 
-### Phase 3: Validation (Common for Both Methods)
+**What Happens Automatically**:
+1. Theme changes (terminal, desktop, all apps)
+2. Hook runs: `~/.config/omarchy/hooks/theme-set.d/20-emacs.sh`
+3. Emacs theme generated via tier system
+4. Emacs loads new theme via `emacsclient`
 
-```bash
-validate_extracted_colors() {
-    local colors_file="$1"
+**No manual intervention required** - everything just works!
 
-    # Required colors for Emacs theme
-    local required_colors=(
-        "bg" "fg" "red" "orange" "yellow"
-        "green" "cyan" "blue" "purple" "magenta"
-        "comment"
-    )
+---
 
-    # Check file is not empty
-    if [ ! -s "$colors_file" ]; then
-        echo "ERROR: No colors extracted"
-        return 1
-    fi
+## Technical Solutions Implemented
 
-    # Count extracted colors
-    local count=$(wc -l < "$colors_file")
-    if [ "$count" -lt 10 ]; then
-        echo "ERROR: Too few colors extracted ($count < 10)"
-        return 1
-    fi
+### Key Challenges Solved
 
-    # Verify each required color exists
-    for color in "${required_colors[@]}"; do
-        if ! grep -q "^${color}=" "$colors_file"; then
-            echo "WARNING: Required color '$color' not found"
-            # Don't fail - some colors might be optional
-        fi
-    done
+1. **Command Substitution Issue**
+   - Problem: Bash debug output polluting extracted colors
+   - Solution: Removed `local` keyword, redirected stderr to /dev/null
 
-    # Validate hex format for each color
-    local invalid=0
-    while IFS='=' read -r name value; do
-        if ! [[ "$value" =~ ^#[0-9a-fA-F]{6}$ ]]; then
-            echo "ERROR: Invalid hex format for $name: $value"
-            invalid=1
-        fi
-    done < "$colors_file"
+2. **nvim -l Output Handling**
+   - Problem: `print()` suppressed in nvim -l mode
+   - Solution: Use `io.stdout:write()` instead
 
-    if [ $invalid -eq 1 ]; then
-        return 1
-    fi
+3. **Variable Override in Tests**
+   - Problem: Script variables overriding test mocks
+   - Solution: `${var:-default}` syntax for environment defaults
 
-    return 0
-}
+4. **Source vs Execute Detection**
+   - Problem: Script running main() when sourced for testing
+   - Solution: Conditional main() call using `${BASH_SOURCE[0]}`
+
+5. **TOML Parsing**
+   - Problem: Keys had trailing whitespace preventing matches
+   - Solution: Trim keys with `tr -d ' '` before case matching
+
+6. **Plugin Structure Complexity**
+   - Problem: Different plugins have incompatible structures
+   - Solution: Support simple plugins (catppuccin), document limitations
+
+---
+
+## Git Commit History
+
+### Recent Commits
+
+```
+cb7d6ab - Clean up and document Tier 2.5 implementation
+3b0b00b - Update documentation for Tier 2.5 plugin extraction
+8b6fbeb - Add Tier 2.5: Extract colors from installed plugin sources
+f1ae593 - Fix Tier 3 fallback: Parse colors.toml for ANSI themes
+9085db6 - Complete Phase 4: Integrated Emacs theme hook
+8c4a5e9 - Add comprehensive theme compatibility documentation
+7b40ecd - (earlier work on themes)
 ```
 
-### Phase 4: Generate Emacs Theme
-
-```bash
-generate_emacs_from_neovim() {
-    local colors_file="$1"
-    local output_file="$2"
-
-    # Read colors into associative array
-    declare -A colors
-    while IFS='=' read -r name value; do
-        colors[$name]="$value"
-    done < "$colors_file"
-
-    # Set defaults for optional colors
-    colors[bg_dark]="${colors[bg_dark]:-${colors[bg]}}"
-    colors[bg_highlight]="${colors[bg_highlight]:-${colors[bg]}}"
-    colors[fg_dark]="${colors[fg_dark]:-${colors[fg]}}"
-
-    # Generate complete emacs.el
-    cat > "$output_file" << 'EMACS_EOF'
-;; Generated from neovim.lua
-(autothemer-deftheme
- omarchy-doom "Omarchy theme generated from neovim.lua"
- ((((class color) (min-colors #xFFFFFF)))
-
-   ;; Color palette (from neovim.lua)
-   (bg          "REPLACE_BG")
-   (bg-dark     "REPLACE_BG_DARK")
-   (bg-highlight "REPLACE_BG_HIGHLIGHT")
-   (fg          "REPLACE_FG")
-   (fg-dark     "REPLACE_FG_DARK")
-   (comment     "REPLACE_COMMENT")
-
-   ;; Syntax colors
-   (red         "REPLACE_RED")
-   (orange      "REPLACE_ORANGE")
-   (yellow      "REPLACE_YELLOW")
-   (green       "REPLACE_GREEN")
-   (cyan        "REPLACE_CYAN")
-   (blue        "REPLACE_BLUE")
-   (purple      "REPLACE_PURPLE")
-   (magenta     "REPLACE_MAGENTA")
-
-   ;; Cursor and selection
-   (cursor-fg   "REPLACE_BG")
-   (cursor-bg   "REPLACE_FG")
-   (sel-fg      "REPLACE_BG")
-   (sel-bg      "REPLACE_BLUE")
-
-   ;; ANSI colors (for compatibility)
-   (black       "REPLACE_BG")
-   (white       "REPLACE_FG")
-   (br-black    "REPLACE_COMMENT")
-   (br-red      "REPLACE_ORANGE")
-   (br-green    "REPLACE_GREEN")
-   (br-yellow   "REPLACE_YELLOW")
-   (br-blue     "REPLACE_BLUE")
-   (br-magenta  "REPLACE_PURPLE")
-   (br-cyan     "REPLACE_CYAN")
-   (br-white    "REPLACE_FG")
-   )
-
- ;; Face mappings (aligned with 20-emacs.sh)
- (
-  ;; Core faces
-  (default                          (:foreground fg :background bg))
-  (cursor                           (:foreground cursor-fg :background cursor-bg))
-  (region                           (:foreground sel-fg :background sel-bg))
-  (highlight                        (:background sel-bg))
-  (shadow                           (:foreground comment))
-  (minibuffer-prompt                (:foreground blue :bold t))
-  (link                             (:foreground blue :underline t))
-  (link-visited                     (:foreground magenta :underline t))
-
-  ;; Line numbers
-  (line-number                      (:foreground comment))
-  (line-number-current-line         (:foreground orange))
-
-  ;; Search / match
-  (isearch                          (:foreground bg :background yellow))
-  (lazy-highlight                   (:foreground bg :background br-yellow))
-  (match                            (:foreground bg :background blue))
-
-  ;; Syntax highlighting
-  (font-lock-keyword-face           (:foreground purple))
-  (font-lock-function-name-face     (:foreground blue))
-  (font-lock-function-call-face     (:foreground blue))
-  (font-lock-variable-name-face     (:foreground red))
-  (font-lock-variable-use-face      (:foreground red))
-  (font-lock-string-face            (:foreground green))
-  (font-lock-doc-face               (:foreground green :italic t))
-  (font-lock-comment-face           (:foreground comment :italic t))
-  (font-lock-comment-delimiter-face (:foreground comment :italic t))
-  (font-lock-constant-face          (:foreground orange))
-  (font-lock-number-face            (:foreground orange))
-  (font-lock-type-face              (:foreground yellow))
-  (font-lock-builtin-face           (:foreground cyan))
-  (font-lock-preprocessor-face      (:foreground cyan))
-  (font-lock-negation-char-face     (:foreground red))
-  (font-lock-warning-face           (:foreground yellow :bold t))
-  (font-lock-regexp-grouping-construct (:foreground cyan))
-  (font-lock-regexp-grouping-backslash (:foreground cyan))
-
-  ;; Mode line
-  (mode-line                        (:foreground fg :background bg-dark))
-  (mode-line-inactive               (:foreground comment :background bg-dark))
-  (mode-line-emphasis               (:foreground blue :bold t))
-  (mode-line-buffer-id              (:foreground fg :bold t))
-
-  ;; Errors / warnings
-  (error                            (:foreground red))
-  (warning                          (:foreground yellow))
-  (success                          (:foreground green))
-
-  ;; Diff / version control
-  (diff-added                       (:foreground green))
-  (diff-removed                     (:foreground red))
-  (diff-changed                     (:foreground magenta))
-  (diff-header                      (:foreground blue :bold t))
-
-  ;; Parens
-  (show-paren-match                 (:foreground bg :background blue :bold t))
-  (show-paren-mismatch              (:foreground bg :background red :bold t))
-
-  ;; Whitespace
-  (trailing-whitespace              (:background red))
-
-  ;; Fringe and UI
-  (fringe                           (:foreground comment :background bg))
-  (vertical-border                  (:foreground bg-dark))
- ))
-
-(provide-theme 'omarchy-doom)
-EMACS_EOF
-
-    # Replace placeholders with actual colors
-    for key in "${!colors[@]}"; do
-        local upper_key=$(echo "$key" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-        sed -i "s|REPLACE_${upper_key}|${colors[$key]}|g" "$output_file"
-    done
-
-    # Verify no placeholders remain
-    if grep -q "REPLACE_" "$output_file"; then
-        echo "ERROR: Some colors were not replaced in generated theme"
-        return 1
-    fi
-
-    return 0
-}
-```
-
-### Phase 5: Complete Hook Integration
-
-```bash
-#!/bin/bash
-
-theme_dir="$HOME/.config/omarchy/current/theme"
-emacs_output="$theme_dir/omarchy-doom-theme.el"
-custom_emacs="$theme_dir/emacs.el"
-neovim_lua="$theme_dir/neovim.lua"
-
-# === TIER 1: Explicit emacs.el ===
-if [ -f "$custom_emacs" ]; then
-    echo "✓ Using explicit emacs.el"
-    cp "$custom_emacs" "$emacs_output"
-    emacsclient -e "(omarchy-themer-install-and-load \"$emacs_output\")"
-    success "Emacs theme updated (explicit)"
-    exit 0
-fi
-
-# === TIER 2: Convert from neovim.lua ===
-if [ -f "$neovim_lua" ]; then
-    echo "→ Found neovim.lua, attempting conversion to emacs theme"
-
-    colors_file=""
-    extraction_method=""
-
-    # Try Lua interpreter first
-    if colors_file=$(extract_neovim_colors_lua "$neovim_lua" 2>&1); then
-        extraction_method="lua"
-        echo "✓ Extracted colors using Lua interpreter"
-    # Fall back to AWK
-    elif colors_file=$(extract_neovim_colors_awk "$neovim_lua" 2>&1); then
-        extraction_method="awk"
-        echo "✓ Extracted colors using AWK"
-    else
-        echo "⚠ Both Lua and AWK extraction failed, falling back to colors.toml"
-        colors_file=""
-    fi
-
-    # If we extracted colors, validate and generate
-    if [ -n "$colors_file" ] && [ -f "$colors_file" ]; then
-        if validate_extracted_colors "$colors_file"; then
-            echo "✓ Validated extracted colors"
-
-            if generate_emacs_from_neovim "$colors_file" "$emacs_output"; then
-                echo "✓ Generated emacs theme from neovim.lua (method: $extraction_method)"
-                rm -f "$colors_file"
-                emacsclient -e "(omarchy-themer-install-and-load \"$emacs_output\")"
-                success "Emacs theme updated (from neovim.lua)"
-                exit 0
-            else
-                echo "⚠ Failed to generate emacs theme"
-            fi
-        else
-            echo "⚠ Validation failed for extracted colors"
-        fi
-
-        rm -f "$colors_file"
-    fi
-
-    echo "→ Falling back to colors.toml"
-fi
-
-# === TIER 3: Fall back to colors.toml (ANSI mapping) ===
-echo "→ Generating from colors.toml (ANSI mapping)"
-if ! command -v emacs >/dev/null 2>&1; then
-    skipped "Emacs"
-fi
-
-create_dynamic_theme
-emacsclient -e "(omarchy-themer-install-and-load \"$emacs_output\")"
-success "Emacs theme updated (ANSI fallback)"
-exit 0
-```
+All code committed and pushed to GitHub: `skeptomai/omarchy-themes`
 
 ---
 
-## Error Boundaries & Safety
+## Future Enhancements (Optional)
 
-### Error Detection Points
-1. Lua interpreter not found → try AWK
-2. Lua execution fails → try AWK
-3. AWK extraction produces no output → fall back to colors.toml
-4. Validation fails (bad hex, missing colors) → fall back to colors.toml
-5. Generation fails (sed errors, file write) → fall back to colors.toml
-6. All methods fail → keep existing theme, log error
+### Expand Tier 2.5 Plugin Support
 
-### Safety Guarantees
-- ✅ Never leaves Emacs without a theme
-- ✅ Never overwrites existing theme until new one is validated
-- ✅ Always falls back to known-working method
-- ✅ Clear logging at each step
-- ✅ Temp files cleaned up even on failure
+**Currently Supported**: catppuccin only
 
----
+**Potential Additions**:
+- **tokyonight**: Requires handling `vim.deepcopy` and `require()` chains
+- **kanagawa**: Needs mapping Japanese color names (sumiInk, fujiWhite, etc.)
+- **bamboo**: Multi-variant structure (vulgaris, multiplex)
+- **rose-pine**: Complex module loading
+- **gruvbox**: Generated colors, not static palette
 
-## Testing Strategy
+**Approach**: Each plugin requires custom handling based on structure.
 
-### Test Cases
-1. **Both lua and luajit available** → should use lua
-2. **Only lua available** → should use lua
-3. **No lua available** → should use AWK
-4. **Corrupted neovim.lua** (bad syntax) → lua fails, AWK succeeds or fails to colors.toml
-5. **Missing colors in neovim.lua** → validation catches, falls back
-6. **Invalid hex codes** → validation catches, falls back
-7. **No neovim.lua** → directly to colors.toml
-8. **Explicit emacs.el exists** → should bypass all conversion
+**Priority**: LOW - Tier 3 works fine for these themes
 
-### Test Procedure
-1. Backup current hooks
-2. Install new hook
-3. Test each scenario above
-4. Verify Emacs theme loads correctly
-5. Verify fallbacks work
-6. Check for any errors in logs
+### Additional Ideas
+
+1. **Tier 1 Adoption**: Encourage theme authors to provide `emacs.el`
+2. **Cache Generated Themes**: Performance optimization (trade-off: staleness)
+3. **Emacs Syntax Validation**: Batch-mode validation before loading
+4. **Color Contrast Checks**: Accessibility validation
+5. **Theme Metadata**: Author, description, palette info in generated files
 
 ---
 
-## Risks & Mitigations
+## Current Status Summary
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|------------|--------|------------|
-| Lua not installed | Medium | Low | AWK fallback |
-| AWK extraction fails | Low | Low | colors.toml fallback |
-| Bad generated elisp | Low | Medium | Validate before use, test in batch mode? |
-| File system errors | Very Low | Medium | Check writes, trap errors |
-| Theme corruption | Very Low | High | Never overwrite until validated |
+### ✅ Completed
 
----
+- [x] Three-tier fallback system (1, 2, 3)
+- [x] Tier 2.5 plugin extraction (catppuccin)
+- [x] Lua interpreter extraction (nvim -l, luajit, lua)
+- [x] TOML parsing for ANSI colors
+- [x] Emacs theme generation
+- [x] Hook integration and deployment
+- [x] Comprehensive testing (16/16 themes)
+- [x] Documentation (PHASE4_COMPLETE.md, THEME_COMPATIBILITY.md)
+- [x] Git repository organization
+- [x] Code cleanup and commenting
 
-## Open Questions
+### 🎯 Current State
 
-1. **Should we cache generated emacs.el?**
-   - Pro: Faster theme switches, less computation
-   - Con: Could become stale if neovim.lua updated
-   - Decision: NO - always regenerate for consistency
+**All objectives achieved.** System is:
+- ✅ Production-ready
+- ✅ Fully tested
+- ✅ Well-documented
+- ✅ Deployed and working
+- ✅ 100% theme compatibility
 
-2. **Should we validate generated elisp syntax?**
-   - Pro: Catch generation errors before Emacs sees them
-   - Con: Requires `emacs --batch`, adds overhead
-   - Decision: TBD - test performance impact
+### 📝 Notes
 
-3. **Log verbosity and location?**
-   - Current: Echo to terminal during theme-set
-   - Alternative: Log to ~/.config/omarchy/logs/theme-hook.log
-   - Decision: TBD - check if hook output is visible to user
-
-4. **Should we support other Lua config formats?**
-   - Current: Only supports our specific neovim.lua structure
-   - Future: Could support flatter formats
-   - Decision: NO for now - YAGNI
+- System is extensible for future plugin support
+- All tiers have graceful fallback
+- No outstanding bugs or issues
+- User can switch between all 16 themes seamlessly
+- Emacs always gets updated colors (minimum: Tier 3 ANSI)
 
 ---
 
-## Implementation Phases
+## Maintenance
 
-### Phase 1: Lua Interpreter Extraction (NEXT)
-- [ ] Implement `extract_neovim_colors_lua()`
-- [ ] Test with both lua and luajit
-- [ ] Test with both existing neovim.lua files
-- [ ] Test error handling (missing lua, bad syntax)
+### Regular Tasks
 
-### Phase 2: AWK Fallback
-- [ ] Implement `extract_neovim_colors_awk()`
-- [ ] Test with existing files
-- [ ] Test with edge cases
+None required - system is self-contained and stable.
 
-### Phase 3: Validation & Generation
-- [ ] Implement `validate_extracted_colors()`
-- [ ] Implement `generate_emacs_from_neovim()`
-- [ ] Test generated elisp loads in Emacs
+### If Themes Are Added
 
-### Phase 4: Hook Integration
-- [ ] Update 20-emacs.sh with three-tier logic
-- [ ] Test all fallback paths
-- [ ] Test with both themes
+1. Test with current tier system
+2. If neovim.lua has inline colors → works with Tier 2
+3. If plugin-based with simple structure → add to Tier 2.5
+4. Otherwise → Tier 3 ANSI works fine
 
-### Phase 5: Deployment
-- [ ] Final testing
-- [ ] Update documentation
-- [ ] Deploy to system hooks
-- [ ] Commit and push to git
+### If Issues Arise
+
+1. Check hook output during theme switch
+2. Verify Emacs is running (`emacsclient` requires daemon)
+3. Check generated theme: `~/.config/omarchy/current/theme/omarchy-doom-theme.el`
+4. Test extraction manually by sourcing `integrated_hook.sh`
 
 ---
 
-## Current Status
+## Project Status: COMPLETE ✅
 
-**Status:** Planning complete, ready for Phase 1 implementation
-
-**Next Steps:**
-1. Implement Lua extraction function
-2. Test with existing themes
-3. Verify error handling
-4. Move to Phase 2
-
-**Notes:**
-- Hybrid approach gives us reliability with graceful degradation
-- Three tiers ensure we always have a working theme
-- Heavy validation prevents bad themes from reaching Emacs
+All planned features implemented, tested, and deployed.
+System is production-ready with 100% theme compatibility.
