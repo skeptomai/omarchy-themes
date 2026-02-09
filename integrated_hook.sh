@@ -115,18 +115,29 @@ LUA_SCRIPT
 }
 
 # Tier 2.5: Extract colors from installed plugin source
+#
+# This function extracts colors directly from Neovim plugin palette files
+# for higher fidelity than ANSI mapping. Currently supports catppuccin only.
+#
+# Why only catppuccin?
+# - Simple structure: return { red = "#...", blue = "#...", ... }
+# - Other plugins have complex structures (vim.deepcopy, nested variants, etc.)
+# - Those plugins fall back to Tier 3 (ANSI mapping) which works fine
+#
+# Future plugins can be added as their structures are understood.
 extract_colors_from_plugin() {
     nvim_config="$1"
     plugin_dir="$HOME/.local/share/nvim/lazy"
 
-    # Find colorscheme name from config
+    # Find colorscheme name from neovim.lua config
     colorscheme=$(grep -E 'colorscheme\s*=\s*"' "$nvim_config" | sed 's/.*colorscheme\s*=\s*"\([^"]*\)".*/\1/' | head -1)
 
     if [ -z "$colorscheme" ]; then
         return 1
     fi
 
-    # Map colorscheme to plugin and palette file
+    # Map colorscheme name to plugin palette file location
+    # Only simple-structure plugins are supported (currently catppuccin)
     local palette_file=""
     case "$colorscheme" in
         catppuccin)
@@ -135,18 +146,19 @@ extract_colors_from_plugin() {
         catppuccin-latte)
             palette_file="$plugin_dir/catppuccin/lua/catppuccin/palettes/latte.lua"
             ;;
-        tokyonight|tokyonight-night)
-            palette_file="$plugin_dir/tokyonight.nvim/lua/tokyonight/colors/night.lua"
-            ;;
-        tokyonight-moon)
-            palette_file="$plugin_dir/tokyonight.nvim/lua/tokyonight/colors/moon.lua"
-            ;;
-        bamboo)
-            palette_file="$plugin_dir/bamboo.nvim/lua/bamboo/palette.lua"
-            ;;
-        kanagawa)
-            palette_file="$plugin_dir/kanagawa.nvim/lua/kanagawa/colors.lua"
-            ;;
+        # Commented out: Complex plugins that need special handling
+        # tokyonight|tokyonight-night)
+        #     # Uses vim.deepcopy, requires Neovim runtime
+        #     palette_file="$plugin_dir/tokyonight.nvim/lua/tokyonight/colors/night.lua"
+        #     ;;
+        # kanagawa)
+        #     # Japanese poetic names, needs extensive mapping
+        #     palette_file="$plugin_dir/kanagawa.nvim/lua/kanagawa/colors.lua"
+        #     ;;
+        # bamboo)
+        #     # Multi-variant table structure
+        #     palette_file="$plugin_dir/bamboo.nvim/lua/bamboo/palette.lua"
+        #     ;;
         *)
             # Other plugins not yet supported, will fall back to Tier 3
             return 1
@@ -165,7 +177,10 @@ extract_colors_from_plugin() {
 local palette_file = arg[1]
 local palette = dofile(palette_file)
 
--- Mapping of plugin color names to our standard names
+-- Mapping of plugin color names to our standard Emacs color scheme
+-- Each entry lists alternative names from different plugins
+-- Currently optimized for catppuccin (base, text, mauve, etc.)
+-- Also includes names from kanagawa, tokyonight, bamboo for future use
 local color_map = {
     -- Background colors
     bg = {"base", "bg", "background", "bg0", "bg_dim", "sumiInk3"},
@@ -177,7 +192,7 @@ local color_map = {
     fg_dark = {"subtext0", "fg_dark", "fg1", "oldWhite"},
     comment = {"overlay0", "comment", "gray", "fg_gutter", "fujiGray", "grey"},
 
-    -- Standard colors
+    -- Standard colors (syntax highlighting)
     red = {"red", "autumnRed", "samuraiRed"},
     orange = {"peach", "orange", "surimiOrange"},
     yellow = {"yellow", "carpYellow", "boatYellow2"},
@@ -447,6 +462,11 @@ EOF
 }
 
 # Main hook logic
+# Three-tier fallback system for maximum compatibility:
+# - Tier 1: Use explicit emacs.el if provided by theme author
+# - Tier 2: Extract colors from neovim.lua with inline color definitions
+# - Tier 2.5: Extract colors from installed plugin source (catppuccin)
+# - Tier 3: Fall back to ANSI colors from colors.toml
 main() {
     if ! command -v emacs >/dev/null 2>&1; then
         skipped "Emacs"
@@ -454,6 +474,7 @@ main() {
     fi
 
     # === TIER 1: Explicit emacs.el ===
+    # If theme author provides a hand-crafted emacs.el, use it directly
     if [ -f "$custom_emacs" ]; then
         echo "✓ Using explicit emacs.el"
         cp "$custom_emacs" "$emacs_output"
@@ -462,7 +483,8 @@ main() {
         exit 0
     fi
 
-    # === TIER 2: Convert from neovim.lua ===
+    # === TIER 2: Convert from neovim.lua (inline colors) ===
+    # Themes with color definitions directly in neovim.lua (stone-creature, field-of-dreams)
     if [ -f "$neovim_lua" ]; then
         echo "→ Found neovim.lua, attempting conversion"
 
@@ -486,6 +508,7 @@ main() {
         fi
 
         # === TIER 2.5: Extract from plugin source ===
+        # Themes that reference plugins with accessible palette files (catppuccin)
         echo "→ Attempting plugin source extraction"
         colors_file=$(extract_colors_from_plugin "$neovim_lua")
         if [ -n "$colors_file" ] && [ -f "$colors_file" ]; then
@@ -510,6 +533,7 @@ main() {
     fi
 
     # === TIER 3: Fall back to colors.toml (ANSI mapping) ===
+    # Standard ANSI color mapping - works for all themes
     echo "→ Generating from colors.toml (ANSI mapping)"
     create_dynamic_theme
     emacsclient -e "(omarchy-themer-install-and-load \"$emacs_output\")" 2>/dev/null || true
